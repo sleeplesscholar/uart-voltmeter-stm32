@@ -18,15 +18,12 @@
 
 #include <stm32f103x6.h>
 
-void TIM2_IRQHandler(void){
-
-}
 
 int main(void){
 
 	RCC->APB2ENR |= (1<<2); //clock enabled for port A
-	GPIOA->CRL &= (0xF<<19); //resetting for pin PA4
-	GPIOA->CRL |= (0b0000<<19); //configuring ping PA4 as analog mode input
+	GPIOA->CRL &= (0xF<<16); //resetting for pin PA4
+	GPIOA->CRL |= (0b0000<<16); //configuring ping PA4 as analog mode input
 	//for voltage input
 
 	// RCC->APB2ENR |= (1<<3); //clock enabled for port B
@@ -37,16 +34,31 @@ int main(void){
 
 	// RCC->APB1ENR |= (1<<21); //enabled clock for I2C1
 
-	RCC->APB1ENR |= (1<<0); //enabled TIM2 clock
-	TIM2->PSC = 35999; //dividing the freqn of the pulse of APB1, which is the freqn that timer runs on by default
-	TIM2->ARR = 100; //interrupt fires after 1000 pulses i.e 0.1 second
-	TIM2->DIER |= (1<<6); //enables to fire a interrupt funcn after given pulse counter
-	NVIC_EnableIRQ(TIM2_IRQn); //allows cpu to listen to the counter and fire an interrupt
-	TIM2->CR1 |= (1<<0); //enabling the counter after everything is configured
-
+	RCC->APB1ENR |= (1<<1); //enabled TIM3 clock
+	TIM3->PSC = 35999; //dividing the freqn of the pulse of APB1, which is the freqn that timer runs on by default
+	TIM3->ARR = 100; //interrupt fires after 100 pulses i.e 0.1 second
+	TIM3->DIER |= (1<<0); //enables to fire a interrupt funcn after given pulse counter
+	TIM3->CR2 |= (0b010<<4); //enabled the update event to send a hardware pulse TRGO for the ADC conversion to begin
+	NVIC_EnableIRQ(TIM3_IRQn); //allows cpu to listen to the counter and fire an interrupt
+	TIM3->CR1 |= (1<<0); //enabling the counter after everything is configured
 
 
 	RCC->APB2ENR |= (1<<9); //enabled clock for ADC1
+	RCC->CFGR |= (0b10<<14); //prescaled the ADC clock to 36/6 i.e. 6 MHz, it can only handle clock below 14 MHz
+	ADC1->CR2 |= (1<<20); //enabled external trigger conversion mode for ADC1
+	ADC1->CR2 |= (0b100<<17); //put the trigger to be TIM3's trigger output
+	ADC1->SQR1 = 0b0000; //set total conversion sequence to 1 i.e. only one conversion happens
+	ADC1->SQR3 |= (4<<0); //in datasheet, pin PA4 corresponds to ADC's IN4 (input pin 04) thus set that as the first conversion (also the only one in that case)
+	ADC1->CR2 |= (1<<0); //enable the ADC1 i.e. power it up
+	int x = 0;
+	while(x!=50000){
+		x++;
+	}
+	//stabilization loop for the ADC1
+	ADC1->CR2 |= (1<<3); //initialise calibration registers
+	ADC1->CR2 |= (1<<2); //enable calibration
+	while((ADC1->CR2 & (1<<2))); //wait till calibration completes
+	ADC1->CR2 |= (1<<0); //enable ADC1 conversion
 
 }
 
