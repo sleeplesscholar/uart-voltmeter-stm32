@@ -18,6 +18,11 @@
 
 #include <stm32f103x6.h>
 
+volatile float latest_voltage;
+void true_voltage(volatile uint16_t rawv){
+	latest_voltage = (rawv/4095.0f)*3.3f;
+}
+//conversion to accurate voltage
 
 int main(void){
 
@@ -59,6 +64,13 @@ int main(void){
 	ADC1->CR2 |= (1<<2); //enable calibration
 	while((ADC1->CR2 & (1<<2))); //wait till calibration completes
 	ADC1->CR2 |= (1<<0); //enable ADC1 conversion
+
+	volatile uint16_t rawvolt;
+	while(1){
+		rawvolt = ADC1->DR; true_voltage(rawvolt); //take the raw conversion value (12 bits in reference to 3.3v(default)) i.e. from 0 to 4095
+		//and converts it to accurate voltage unit by dividing it by 4095 and multiplying by 3.3 i.e. finding the proportion and multiplying
+		//by the reference voltage
+	}
 
 }
 
