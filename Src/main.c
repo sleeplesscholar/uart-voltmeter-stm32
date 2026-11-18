@@ -18,11 +18,29 @@
 
 #include <stm32f103x6.h>
 
-volatile float latest_voltage;
-void true_voltage(volatile uint16_t rawv){
-	latest_voltage = (rawv/4095.0f)*3.3f;
+// volatile int latest_voltage;
+volatile uint16_t rawvolt;
+uint8_t dummy = 0xAA;
+
+// void true_voltage(){
+	// latest_voltage = (rawv/4095)*3300;
+// }
+//conversion to accurate voltage (mV)
+
+void send_data(uint8_t data){
+	USART1->DR = data; // write to the data register to begin transmission
+	while(!(USART1->SR & (1<<7))); // wait till transmit register is empty
 }
-//conversion to accurate voltage
+
+void send_volt(){
+
+	uint8_t volt_lwrbyte = (rawvolt & 0xFF); //extracts bits 0 to 7
+	uint8_t volt_uprbits = (rawvolt >> 8); //extracts bits 8 to 11
+
+	send_data(dummy); //send dummy data
+	send_data(volt_uprbits); //send the upper bits
+	send_data(volt_lwrbyte); //send the lower byte
+}
 
 int main(void){
 
@@ -30,6 +48,8 @@ int main(void){
 	GPIOA->CRL &= (0xF<<16); //resetting for pin PA4
 	GPIOA->CRL |= (0b0000<<16); //configuring ping PA4 as analog mode input
 	//for voltage input
+	GPIOA->CRH &= ~(0xF<<4); //reset PA(
+	GPIOA->CRH |= (0b1011<<4);//configuring pin PA9 as push-pull alternate funcn for the TX line
 
 	// RCC->APB2ENR |= (1<<3); //clock enabled for port B
 	// GPIOB->CRL &= (0xFF<<24);//resetting for ping PB6 and PB7
@@ -40,11 +60,11 @@ int main(void){
 	// RCC->APB1ENR |= (1<<21); //enabled clock for I2C1
 
 	RCC->APB1ENR |= (1<<1); //enabled TIM3 clock
-	TIM3->PSC = 35999; //dividing the freqn of the pulse of APB1, which is the freqn that timer runs on by default
+	TIM3->PSC = 35999; //dividing the freqn of the pulse of APB1, which is the freqn that timer runs on by default 36MHz/36KHz, give freqn 1KHz
 	TIM3->ARR = 100; //interrupt fires after 100 pulses i.e 0.1 second
-	TIM3->DIER |= (1<<0); //enables to fire a interrupt funcn after given pulse counter
+	// TIM3->DIER |= (1<<0); //enables to fire a interrupt funcn after given pulse counter, unneeded for hardware interrupt
 	TIM3->CR2 |= (0b010<<4); //enabled the update event to send a hardware pulse TRGO for the ADC conversion to begin
-	NVIC_EnableIRQ(TIM3_IRQn); //allows cpu to listen to the counter and fire an interrupt
+	// NVIC_EnableIRQ(TIM3_IRQn); //allows cpu to listen to the counter and fire an interrupt (unneeded because it is only for software interrupt)
 	TIM3->CR1 |= (1<<0); //enabling the counter after everything is configured
 
 
@@ -55,21 +75,33 @@ int main(void){
 	ADC1->SQR1 = 0b0000; //set total conversion sequence to 1 i.e. only one conversion happens
 	ADC1->SQR3 |= (4<<0); //in datasheet, pin PA4 corresponds to ADC's IN4 (input pin 04) thus set that as the first conversion (also the only one in that case)
 	ADC1->CR2 |= (1<<0); //enable the ADC1 i.e. power it up
+
 	int x = 0;
 	while(x!=50000){
 		x++;
 	}
 	//stabilization loop for the ADC1
+
 	ADC1->CR2 |= (1<<3); //initialise calibration registers
 	ADC1->CR2 |= (1<<2); //enable calibration
 	while((ADC1->CR2 & (1<<2))); //wait till calibration completes
 	ADC1->CR2 |= (1<<0); //enable ADC1 conversion
 
-	volatile uint16_t rawvolt;
+	RCC->APB2ENR |= (1<<14); //Enabled clock for USART1
+	USART1->CR1 &= ~(1<<12); //Set the word length(M bit) to 0 so that it streams a 8-bit data
+	USART1->CR2 &= ~(0b11 << 12); //configured to the stop bit to default
+	USART1->BRR &= ~(0xFFFF<<0); //reset BRR
+	USART1->BRR |= (52 << 4); //configured div_mantissa i.e. stuff before point for USART1_div
+	USART1->BRR |= (1 << 0); // configured div_fraction i.e. stuff after point for USART1_div, divided by 16
+	//the baud rate is configured for 8MHz instead of 72 MHz because all buses run on 8MHz on reset unless specifically programmed to run at max
+	// this gives baud 9600 as baud = fclk/16*usart_div
+	USART1->CR1 |= (1<<3); //enables the transmitter
+	USART1->CR1 |= (1<<13); //Set the USART enable bit to 1 i.e. turned on USART
+
 	while(1){
-		rawvolt = ADC1->DR; true_voltage(rawvolt); //take the raw conversion value (12 bits in reference to 3.3v(default)) i.e. from 0 to 4095
-		//and converts it to accurate voltage unit by dividing it by 4095 and multiplying by 3.3 i.e. finding the proportion and multiplying
-		//by the reference voltage
+		while(!(ADC1->SR & (1 << 1))); //wait till previous conversion is done
+		rawvolt = ADC1->DR; //update the value
+		send_volt(); //push tbe value
 	}
 
 }
